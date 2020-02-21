@@ -46,7 +46,7 @@ data1 <- list(
   mode = 0 ## mode = 1にするとWBIC用 beta = (1/log(n))の事後分布生成
 )
 
-model1 <- stan_model("C:/Users/dhojo/Desktop/Imai2019_model1.stan")
+model1 <- stan_model("Imai2019_model1.stan")
 fit1 <- sampling(model1, data1, iter = 2000, warmup = 1000, thin  = 1, chains = 4 , seed = 1234)
 stan_rhat(fit1)
 
