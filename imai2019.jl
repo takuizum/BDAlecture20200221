@@ -11,6 +11,7 @@ n <- nrow(radiata)
 X <- cbind(rep(1,n),radiata$x1)
 y <- matrix(radiata$y,ncol=1)
 """
+n = X = y = nothing # Dummies for Linting
 @rget n X y
 
 r_0 = 0.06
@@ -34,7 +35,7 @@ logML
 ## Stan
 using CmdStan
 Imai2019_stan = open("Imai2019_model1.stan", "r") do f
-    readlines(f, keep = true)
+    readlines(f; keep = true)
 end |> join
 mod1 = Stanmodel(name = "imai2019"; model = Imai2019_stan,
                  num_samples = 1000, num_warmup = 1000, thin = 1, nchains = 4, random = CmdStan.Random(1234))
@@ -47,30 +48,49 @@ data1 = Dict("n" => n,
              )
 
 rc, smpl, cname = stan(mod1, data1)
-display(cname)
 
-using Statistics
-occursin.(r"log_lik", cname)
-sum(x -> occursin(r"log_lik", x), cname)
-function wbic(smpl, cname)
-    n = sum(x -> occursin(r"log_lik", x), cname)
-    loc = findall(occursin.(r"log_lik", cname))
-    log_lik_smpl = smpl[:,loc,:]
-    sum(log_lik_smpl; dims = 2) |> mean
+using MCMCChains, DataFrames
+summarize(smpl)
+
+# Extract log_lik
+function extract_loglik(smpl, cname)
+    n_smpl = size(smpl)[1]
+    nm = cname[occursin.(r"log_lik", cname)]
+    tmp_smpl = get_params(smpl)
+    chns = MCMCChains.chains(smpl)
+    res = zeros(Float64, n_smpl*length(chns), length(nm))
+    for (i, n) in enumerate(nm)
+        sym = Symbol(n)
+        res[:, i] = vec(tmp_smpl[sym])[:]
+    end
+    res = DataFrame(res)
+    rename!(res, nm)
+    return res
+end
+# extract_loglik(smpl, cname)
+
+# Define `sum` for dataframe type.
+function Base.sum(df::DataFrame; dims )
+    sum(convert(Array, df), dims = dims)
 end
 
+using Statistics
+function wbic(smpl, cname)
+    smpl_loglik = extract_loglik(smpl, cname)
+    sum(smpl_loglik; dims = 2) |> mean
+end
 wbic(smpl, cname) |> display
-# -308.65735830750003
+# -308.74247859999997
+
 ## WBIC - v_t
 
+Statistics.mean(df::DataFrame; dims) = mean(convert(Array, df), dims = dims)
 function gf_variance(smpl, cname)
-    n = sum(x -> occursin(r"log_lik", x), cname)
-    loc = findall(occursin.(r"log_lik", cname))
-    log_lik_smpl = smpl[:,loc,:]
-    log_lik = sum(log_lik_smpl; dims = 2)
-    mean(mean(log_lik_smpl .^2; dims = 2) .- mean(log_lik_smpl; dims = 2) .^2)
+    smpl_loglik = extract_loglik(smpl, cname)
+    sum(mean(smpl_loglik .^2; dims = 1) .- mean(smpl_loglik; dims = 1) .^2)
 end
 gf_variance(smpl, cname)
 
-v_t = 0.5log(n) * gf_variance(smpl, cname)
+v_t = (1/(2*log(n))) * gf_variance(smpl, cname)
 wbic(smpl, cname) - v_t |> display
+# -310.86545070746405
